@@ -975,7 +975,6 @@ public class BrokerService implements Closeable {
     public CompletableFuture<Optional<Topic>> getTopicIfExists(final String topic) {
         return getTopic(topic, false /* createIfMissing */);
     }
-
     public CompletableFuture<Topic> getOrCreateTopic(final String topic) {
         return isAllowAutoTopicCreationAsync(topic)
                 .thenCompose(isAllowed -> getTopic(topic, isAllowed))
@@ -2955,12 +2954,31 @@ public class BrokerService implements Closeable {
 
     public CompletableFuture<PartitionedTopicMetadata> fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(
             TopicName topicName) {
+        return fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(topicName, false);
+    }
+
+    public CompletableFuture<PartitionedTopicMetadata> fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(
+            TopicName topicName, boolean refresh) {
         if (pulsar.getNamespaceService() == null) {
             return FutureUtil.failedFuture(new NamingException("namespace service is not ready"));
         }
-        Optional<Policies> policies =
-                pulsar.getPulsarResources().getNamespaceResources()
-                        .getPoliciesIfCached(topicName.getNamespaceObject());
+
+        if (refresh) {
+            return pulsar.getPulsarResources().getNamespaceResources()
+                    .getPoliciesAsync(topicName.getNamespaceObject(), true)
+                    .thenCompose(policies ->
+                            fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(topicName, policies));
+        } else {
+            Optional<Policies> policies =
+                    pulsar.getPulsarResources().getNamespaceResources()
+                            .getPoliciesIfCached(topicName.getNamespaceObject());
+            return fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(topicName, policies);
+        }
+    }
+
+    private CompletableFuture<PartitionedTopicMetadata> fetchPartitionedTopicMetadataCheckAllowAutoCreationAsync(
+            TopicName topicName, Optional<Policies> policies) {
+
         return pulsar.getNamespaceService().checkTopicExists(topicName)
                 .thenCompose(topicExists -> {
                     return fetchPartitionedTopicMetadataAsync(topicName)
@@ -3202,14 +3220,20 @@ public class BrokerService implements Closeable {
 
     public CompletableFuture<Boolean> isAllowAutoTopicCreationAsync(final String topic) {
         TopicName topicName = TopicName.get(topic);
-        return isAllowAutoTopicCreationAsync(topicName);
+        return isAllowAutoTopicCreationAsync(topicName, false);
     }
 
-    public CompletableFuture<Boolean> isAllowAutoTopicCreationAsync(final TopicName topicName) {
-        Optional<Policies> policies =
-                pulsar.getPulsarResources().getNamespaceResources()
-                        .getPoliciesIfCached(topicName.getNamespaceObject());
-        return isAllowAutoTopicCreationAsync(topicName, policies);
+    public CompletableFuture<Boolean> isAllowAutoTopicCreationAsync(final TopicName topicName, final boolean refresh) {
+        if (refresh) {
+            return pulsar.getPulsarResources().getNamespaceResources()
+                    .getPoliciesAsync(topicName.getNamespaceObject(), true)
+                    .thenCompose(policies -> isAllowAutoTopicCreationAsync(topicName, policies));
+        } else {
+            Optional<Policies> policies =
+                    pulsar.getPulsarResources().getNamespaceResources()
+                            .getPoliciesIfCached(topicName.getNamespaceObject());
+            return isAllowAutoTopicCreationAsync(topicName, policies);
+        }
     }
 
     private CompletableFuture<Boolean> isAllowAutoTopicCreationAsync(final TopicName topicName,
